@@ -25,10 +25,6 @@ function isInstrumentable(astNode, contents) {
     return isInstrumentableExpression(astNode, contents) || isInstrumentableStatement(astNode, contents)
 }
 
-function splice(str, idxBegin, idxEnd, add) {
-    return str.slice(0, idxBegin) + add + str.slice(idxEnd);
-}
-
 function time(description, func) {
     var startTime = Date.now()
     process.stderr.write(description + '... ')
@@ -61,10 +57,8 @@ function rewrite(filename, contents) {
             var range = astNode.range
             var line = astNode.loc.start.line
             var column = astNode.loc.start.column + 1
-            var text = contents.substring(range[0], range[1])
             var identifier = [filename,':',line,':',column].join('')
             var increaseCounter = '$_$["'+identifier+'"]=($_$["'+identifier+'"]||0)+1'
-            var ancestorNodes = ancestors.filter(isInstrumentable)
             if (isInstrumentableExpression(astNode, contents)) {
                 var prefix = '('+increaseCounter+','
                 var postfix = ')'
@@ -72,18 +66,8 @@ function rewrite(filename, contents) {
                 var prefix = ''
                 var postfix = increaseCounter+';'
             }
-            var replacement = {
-                node: astNode,
-                ancestors: ancestorNodes,
-            };
-            var insertPrefix = Object.create(replacement)
-            var insertPostfix = Object.create(replacement)
-            insertPrefix.offset = range[0]
-            insertPrefix.value = prefix
-            insertPostfix.offset = range[1]
-            insertPostfix.value = postfix
-            listOfReplacements.push(insertPrefix)
-            listOfReplacements.push(insertPostfix)
+            listOfReplacements.push({ offset: range[0], value: prefix })
+            listOfReplacements.push({ offset: range[1], value: postfix })
             return astNode
         })
     })
@@ -100,10 +84,9 @@ function rewrite(filename, contents) {
 
     var lastOffset = 0;
     var listOfSegments = [];
-    time('Making ' + listOfReplacements.length + ' Replacements', function() {
+    return time('Making ' + listOfReplacements.length + ' Replacements', function() {
         listOfReplacements
             .forEach(function replace(replacement) {
-                var node = replacement.node
                 var value = replacement.value
                 var offset = replacement.offset
                 var segment = contents.substring(lastOffset, offset)
@@ -117,17 +100,17 @@ function rewrite(filename, contents) {
         if (lastSegment) {
             listOfSegments.push(lastSegment)
         }
-    })
 
-    return "$_$=(typeof $_$==='object'?$_$:{});" +
-        "$___memory=(typeof $___memory==='object'?$___memory:{allocations:$_$,top:function(num) {" +
-            "return Object.keys($_$).sort(function(a,b) { " +
-                "return $_$[b]-$_$[a] " +
-            "}).slice(0,num).reduce(function(acc,a) {" +
-                "acc[a]=$_$[a];return acc" +
-            "},{}); " +
-        "}});" +
-        listOfSegments.join('')
+        return "$_$=(typeof $_$==='object'?$_$:{});" +
+            "$___memory=(typeof $___memory==='object'?$___memory:{allocations:$_$,top:function(num) {" +
+                "return Object.keys($_$).sort(function(a,b) { " +
+                    "return $_$[b]-$_$[a] " +
+                "}).slice(0,num).reduce(function(acc,a) {" +
+                    "acc[a]=$_$[a];return acc" +
+                "},{}); " +
+            "}});" +
+            listOfSegments.join('')
+    })
 }
 
 var options = nomnom
