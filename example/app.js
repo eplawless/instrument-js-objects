@@ -14,6 +14,9 @@ setInterval(function() {
     }
 }, 0)
 
+function Foo() {}
+
 var q = {
+    y: new Foo,
     get x() { return 1 }
 }

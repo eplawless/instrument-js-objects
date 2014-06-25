@@ -8,6 +8,7 @@ function isInstrumentableExpression(astNode, contents) {
     switch (astNode.type) {
         case 'ArrayExpression':
         case 'ObjectExpression':
+        case 'NewExpression':
             return true
         case 'FunctionExpression':
             var isFalsePositive = contents[astNode.range[0]] === '{'
