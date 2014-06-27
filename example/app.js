@@ -3,6 +3,7 @@ function test() {
     {}
 }
 setInterval(function() {
+    function bar() { return function() {} }
     for (var idx = 0; idx < 10; ++idx) {
         collection.push({
             get x() { return 1; },

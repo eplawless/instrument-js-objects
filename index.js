@@ -26,31 +26,35 @@ function isInstrumentable(astNode, contents) {
     return isInstrumentableExpression(astNode, contents) || isInstrumentableStatement(astNode, contents)
 }
 
-function time(description, func) {
-    var startTime = Date.now()
-    process.stderr.write(description + '... ')
+function time(verbose, description, func) {
+    if (verbose) {
+        var startTime = Date.now()
+        process.stderr.write(description + '... ')
+    }
     var result = func()
-    process.stderr.write('Done (' + (Date.now()-startTime) + 'ms)\n')
+    if (verbose) {
+        process.stderr.write('Done (' + (Date.now()-startTime) + 'ms)\n')
+    }
     return result
 }
 
-function rewriteFile(filename) {
+function rewriteFile(verbose, filename) {
     var filename = options.filename
-    var buffer   = time('Loading file "' + filename + '"', function() {
+    var buffer   = time(verbose, 'Loading file "' + filename + '"', function() {
         return fs.readFileSync(filename)
     })
     var contents = buffer.toString('utf-8')
-    return rewrite(filename, contents)
+    return rewrite(filename, contents, verbose)
 }
 
-function rewrite(filename, contents) {
+function rewrite(filename, contents, verbose) {
     var listOfReplacements = [];
     var parseopts = { range: true, raw: true, loc: true }
-    var ast = time('Parsing AST', function() {
+    var ast = time(verbose, 'Parsing AST', function() {
         return esprima.parse(contents, parseopts)
     })
 
-    ast = time('Rewriting AST', function() {
+    ast = time(verbose, 'Rewriting AST', function() {
         return traverse(ast, function instrumentNode(astNode, ancestors) {
             if (!isInstrumentable(astNode, contents)) {
                 return astNode
@@ -59,13 +63,13 @@ function rewrite(filename, contents) {
             var line = astNode.loc.start.line
             var column = astNode.loc.start.column + 1
             var identifier = [filename,':',line,':',column].join('')
-            var increaseCounter = '$_$["'+identifier+'"]=($_$["'+identifier+'"]||0)+1'
+            var increaseCounter = '$_$count("'+identifier+'")'
             if (isInstrumentableExpression(astNode, contents)) {
-                var prefix = '('+increaseCounter+','
-                var postfix = ')'
+                var prefix = '$_$tag('
+                var postfix = ',"'+identifier+'")'
             } else if (isInstrumentableStatement(astNode, contents)) {
                 var prefix = ''
-                var postfix = increaseCounter+';'
+                var postfix = ';'+increaseCounter+';'
             }
             listOfReplacements.push({ offset: range[0], value: prefix })
             listOfReplacements.push({ offset: range[1], value: postfix })
@@ -77,7 +81,7 @@ function rewrite(filename, contents) {
         return contents;
     }
 
-    listOfReplacements = time('Sorting Results', function() {
+    listOfReplacements = time(verbose, 'Sorting Results', function() {
         return listOfReplacements.sort(function(a, b) {
             return a.offset - b.offset
         })
@@ -85,7 +89,7 @@ function rewrite(filename, contents) {
 
     var lastOffset = 0;
     var listOfSegments = [];
-    return time('Making ' + listOfReplacements.length + ' Replacements', function() {
+    return time(verbose, 'Making ' + listOfReplacements.length + ' Replacements', function() {
         listOfReplacements
             .forEach(function replace(replacement) {
                 var value = replacement.value
@@ -103,13 +107,29 @@ function rewrite(filename, contents) {
         }
 
         return "$_$=(typeof $_$==='object'?$_$:{});" +
-            "$___memory=(typeof $___memory==='object'?$___memory:{allocations:$_$,top:function(num) {" +
-                "return Object.keys($_$).sort(function(a,b) { " +
-                    "return $_$[b]-$_$[a] " +
-                "}).slice(0,num).reduce(function(acc,a) {" +
-                    "acc[a]=$_$[a];return acc" +
-                "},{}); " +
-            "}});" +
+            "$_$count=(typeof $_$count==='function'?$_$count:function(location){" +
+                "$_$[location]=($_$[location]||0)+1;" +
+            "});" +
+            "$_$tag=(typeof $_$tag==='function'?$_$tag:function(val,location) {" +
+                "$_$count(location);" +
+                "Object.defineProperty(val,'__ALLOCATED_AT__',{" +
+                    "enumerable: false," +
+                    "configurable: false," +
+                    "writable: false," +
+                    "value: location" +
+                "});return val" +
+            "});" +
+            "$_$memory=(typeof $_$memory==='object'?$_$memory:{" +
+                "get allocations(){return $_$}," +
+                "clear:function(){$_$={}}," +
+                "top:function(num){" +
+                    "return Object.keys($_$).sort(function(a,b) { " +
+                        "return $_$[b]-$_$[a] " +
+                    "}).slice(0,num).reduce(function(acc,a) {" +
+                        "acc[a]=$_$[a];return acc" +
+                    "},{}); " +
+                "}," +
+            "});" +
             listOfSegments.join('')
     })
 }
@@ -120,8 +140,12 @@ var options = nomnom
         required: true,
         help: 'File to traverse'
     })
+    .option('verbose', {
+        abbr: 'v',
+        flag: true,
+        help: 'Print status to stderr'
+    })
     .parse()
 
-var contents = rewriteFile(options.filename)
+var contents = rewriteFile(options.verbose, options.filename)
 console.log(contents)
-
